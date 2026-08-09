@@ -266,7 +266,9 @@ do_restore() {
   local i
   for i in "${!files[@]}"; do echo "  [$((i + 1))] $(basename "${files[$i]}")"; done
   read -r -p "選擇要還原的備份編號: " n
-  [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#files[@]}" ] || { echo "無效編號。"; exit 1; }
+  if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ] || [ "$n" -gt "${#files[@]}" ]; then
+    echo "無效編號。"; exit 1
+  fi
   f="${files[$((n - 1))]}"
   local b; case "$(basename "$f")" in edge-*) b="edge";; *) b="chrome";; esac
   local domain managed; domain="$(browser_domain "$b")"; managed="$(managed_plist "$b")"
