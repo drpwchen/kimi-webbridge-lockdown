@@ -16,12 +16,19 @@ jobs:
         shell: pwsh
         run: .\tests\run-tests.ps1
 
+  tests-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run logic tests (bash 3.2, the macOS system shell)
+        run: /bin/bash tests/run-tests.sh
+
   shellcheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck macos script
-        run: shellcheck macos/lockdown.sh
+        run: shellcheck macos/lockdown.sh tests/run-tests.sh
 
   secret-scan:
     runs-on: ubuntu-latest

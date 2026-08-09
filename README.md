@@ -39,14 +39,37 @@ cd ai-browser-lockdown\windows
 
 After writing, **fully quit and restart the browser** (all windows and background processes), check `edge://policy` / `chrome://policy` shows `ExtensionSettings`, then live-test both directions.
 
-### macOS (Edge + Chrome) — EXPERIMENTAL
+### macOS (Edge + Chrome) — tested
+
+The policy must live in `/Library/Managed Preferences`, so the script calls `sudo`:
 
 ```bash
 cd ai-browser-lockdown/macos
-./lockdown.sh
+./lockdown.sh                    # interactive menu: lock / status / restore
+./lockdown.sh status             # read-only, no admin needed
 ```
 
-⚠️ The macOS path writes user-level `defaults`, which **some browser builds do not honor as mandatory policy** (they only trust MDM / Managed Preferences). The script therefore makes the browser-side verification step mandatory: if `ExtensionSettings` does not appear in `edge://policy` / `chrome://policy`, this approach does not work on your setup and you need an MDM profile instead. **Not yet verified on real hardware** — treat every claim on this path as unconfirmed until you have run the live test yourself.
+After writing, **fully quit and restart the browser** (Cmd+Q, all windows), open
+`chrome://policy` / `edge://policy`, and confirm `ExtensionSettings` shows **level
+`Mandatory`** — then live-test both directions.
+
+> **`defaults write` does not work, and fails silently.** v0.1.0 wrote the policy to
+> user-level `defaults`. Measured on macOS 26.5.2 / Chrome 151 with a real
+> `debugger`-permission extension (2026-08-09):
+>
+> | Where the policy is written | `chrome://policy` | `chrome.debugger.attach` on a blocked host |
+> |---|---|---|
+> | `defaults write com.google.Chrome` | level **Recommended**, status *Valid* | **succeeds** — the extension attached and read the page |
+> | `/Library/Managed Preferences/…` (root:wheel, 644) | level **Mandatory**, scope *Machine* | **`Cannot attach to this target.`** |
+>
+> An unblocked control host kept working in both runs, so the block is precise rather
+> than a broken browser. The dangerous part is the middle column: the user-defaults
+> policy is listed as *Valid* on `chrome://policy`, so following v0.1.0's own
+> verification step told you that you were protected when you were not. That is why
+> the check is now "level must read Mandatory", not "ExtensionSettings appears".
+
+If your Mac is MDM-managed, your MDM may overwrite `/Library/Managed Preferences`;
+deliver the same `ExtensionSettings` payload through the MDM instead.
 
 ## Design decisions
 

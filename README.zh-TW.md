@@ -39,14 +39,34 @@ cd ai-browser-lockdown\windows
 
 寫入後**完全關閉瀏覽器再重開**（含背景程序），到 `edge://policy` / `chrome://policy` 確認 `ExtensionSettings` 有出現，然後雙向實測。
 
-### macOS（Edge＋Chrome）——實驗性
+### macOS（Edge＋Chrome）——已實測
+
+政策必須寫在 `/Library/Managed Preferences`，所以腳本會呼叫 `sudo`：
 
 ```bash
 cd ai-browser-lockdown/macos
-./lockdown.sh
+./lockdown.sh                    # 互動選單：上鎖／狀態／還原
+./lockdown.sh status             # 唯讀，不需要管理員權限
 ```
 
-⚠️ macOS 路徑寫的是 user 層 `defaults`，**部分瀏覽器版本不把它當強制政策**（只認 MDM／Managed Preferences）。所以腳本把瀏覽器端驗證列為必做：`edge://policy` / `chrome://policy` 沒看到 `ExtensionSettings` ＝這方法在你的環境無效，要改走 MDM profile。**尚未在實機驗證**——在你自己跑完實測之前，這條路徑的一切都當作未確認。
+寫入後**完全關閉瀏覽器再重開**（Cmd+Q，所有視窗），開 `chrome://policy` /
+`edge://policy`，確認 `ExtensionSettings` 的**等級是「強制 Mandatory」**，再做雙向實測。
+
+> **`defaults write` 沒有用，而且是無聲失敗。** v0.1.0 把政策寫到 user 層 `defaults`。
+> 在 macOS 26.5.2 / Chrome 151 上用真的帶 `debugger` 權限的擴充實測（2026-08-09）：
+>
+> | 政策寫在哪 | `chrome://policy` | 對被封鎖 host 呼叫 `chrome.debugger.attach` |
+> |---|---|---|
+> | `defaults write com.google.Chrome` | 等級**建議採用**，狀態*有效* | **成功** —— 擴充 attach 上去並讀到頁面內容 |
+> | `/Library/Managed Preferences/…`（root:wheel, 644） | 等級**強制**，範圍*本機* | **`Cannot attach to this target.`** |
+>
+> 兩次測試中未封鎖的對照 host 都正常，所以這是精準封鎖、不是瀏覽器壞掉。危險的是中間那欄：
+> user defaults 那層在 `chrome://policy` 上顯示「有效」，照 v0.1.0 自己寫的驗證步驟做，
+> 會讓你以為受保護了，其實完全沒有。所以現在的檢查標準是「等級必須是強制」，
+> 而不是「ExtensionSettings 有出現」。
+
+如果你的 Mac 由 MDM 管理，MDM 可能會覆蓋 `/Library/Managed Preferences`，
+請改用 MDM 下發同樣的 `ExtensionSettings` payload。
 
 ## 設計取捨
 
