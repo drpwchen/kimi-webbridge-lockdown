@@ -20,9 +20,18 @@ Assert ((Format-HostPattern '*://mma.sinopac.com') -eq '*://mma.sinopac.com') 'a
 Assert ((Format-HostPattern 'https://ebank.esunbank.com.tw/login?a=1') -eq '*://ebank.esunbank.com.tw') 'pasted URL extracts host'
 Assert ((Format-HostPattern 'MAIL.Google.com/') -eq '*://mail.google.com') 'lowercase + trailing slash'
 Assert ((Format-HostPattern '  richart.tw  ') -eq '*://richart.tw') 'whitespace trimmed'
+Assert ((Format-HostPattern 'https://client.schwab.com:443/Login') -eq '*://client.schwab.com') 'port stripped (URL form)'
+Assert ((Format-HostPattern 'client.schwab.com:443') -eq '*://client.schwab.com') 'port stripped (bare form)'
+Assert ((Format-HostPattern 'https://user:pw@evil.example.com/path') -eq '*://evil.example.com') 'userinfo stripped (URL form)'
+Assert ((Format-HostPattern 'user:pw@evil.example.com') -eq '*://evil.example.com') 'userinfo stripped (bare form)'
 Assert ($null -eq (Format-HostPattern '')) 'empty rejected'
 Assert ($null -eq (Format-HostPattern '   ')) 'blank rejected'
 Assert ($null -eq (Format-HostPattern 'not a host')) 'embedded space rejected'
+Assert ($null -eq (Format-HostPattern 'not-a-url')) 'bare word without dot rejected'
+Assert ($null -eq (Format-HostPattern 'bad_host.com')) 'underscore rejected'
+Assert ($null -eq (Format-HostPattern 'a..b.com')) 'empty label rejected'
+Assert ($null -eq (Format-HostPattern '-bad.com')) 'leading dash rejected'
+Assert ($null -eq (Format-HostPattern 'http://[::1]:8080/x')) 'bracketed IPv6 rejected'
 
 Write-Host "== Merge-BlockedHosts =="
 $extA = 'bnlffdbcfnanfbknnlaflhlhkocccckg'
@@ -71,6 +80,41 @@ $j7 = Merge-BlockedHosts -ExistingJson $null -ExtensionIds @($extA) -Hosts @('ht
 $o7 = ConvertFrom-Json $j7
 $hosts7 = @($o7.$extA.runtime_blocked_hosts)
 Assert (($hosts7 -contains '*://my.taishinbank.com.tw') -and ($hosts7 -contains '*://richart.tw') -and ($hosts7 -contains '*://ac.taishinbank.com.tw')) 'dirty inputs normalized'
+
+Write-Host "== Remove-BlockedHosts =="
+# base: extA has 3 hosts + a sibling setting; extB has 1 host + installation_mode
+$base = '{"' + $extA + '":{"toolbar_pin":"force_pinned","runtime_blocked_hosts":["*://a.example","*://b.example","*://c.example"]},"' + $extB + '":{"installation_mode":"blocked","runtime_blocked_hosts":["*://x.example"]}}'
+
+# 1. remove one host — others and sibling settings stay
+$r1 = Remove-BlockedHosts -ExistingJson $base -ExtensionIds @($extA) -Hosts @('b.example')
+$ro1 = ConvertFrom-Json $r1
+Assert ((@($ro1.$extA.runtime_blocked_hosts) -join ',') -eq '*://a.example,*://c.example') 'removes only the named host'
+Assert ($ro1.$extA.toolbar_pin -eq 'force_pinned') 'sibling setting kept after removal'
+Assert (@($ro1.$extB.runtime_blocked_hosts) -contains '*://x.example') 'other extension untouched'
+
+# 2. removing every host drops the key but keeps other settings on that extension
+$r2 = Remove-BlockedHosts -ExistingJson $base -ExtensionIds @($extA) -Hosts @('a.example', 'b.example', 'c.example')
+$ro2 = ConvertFrom-Json $r2
+Assert ($null -eq $ro2.$extA.runtime_blocked_hosts) 'emptied host list key removed'
+Assert ($ro2.$extA.toolbar_pin -eq 'force_pinned') 'extension entry kept (has other settings)'
+
+# 3. extension whose ONLY setting was the host list disappears entirely
+$only = '{"' + $extA + '":{"runtime_blocked_hosts":["*://a.example"]}}'
+$r3 = Remove-BlockedHosts -ExistingJson $only -ExtensionIds @($extA) -Hosts @('a.example')
+Assert ($null -eq $r3) 'whole policy empties to $null (caller deletes the value)'
+
+# 4. unknown host / unknown extension are no-ops
+$r4 = Remove-BlockedHosts -ExistingJson $base -ExtensionIds @($extA) -Hosts @('nothere.example')
+Assert ((ConvertFrom-Json $r4).$extA.runtime_blocked_hosts.Count -eq 3) 'unknown host is a no-op'
+$r5 = Remove-BlockedHosts -ExistingJson $base -ExtensionIds @('cccccccccccccccccccccccccccccccc') -Hosts @('a.example')
+Assert ((ConvertFrom-Json $r5).$extA.runtime_blocked_hosts.Count -eq 3) 'unknown extension is a no-op'
+
+# 5. lock→unblock roundtrip returns to the starting state
+$locked = Merge-BlockedHosts -ExistingJson $base -ExtensionIds @($extA) -Hosts @('mail.google.com')
+$unlocked = Remove-BlockedHosts -ExistingJson $locked -ExtensionIds @($extA) -Hosts @('mail.google.com')
+$baseNormalized = ConvertTo-Json (ConvertTo-DeepHashtable (ConvertFrom-Json $locked)) -Depth 10 -Compress
+$relocked = Merge-BlockedHosts -ExistingJson $unlocked -ExtensionIds @($extA) -Hosts @('mail.google.com')
+Assert ($relocked -eq $baseNormalized) 'lock -> unblock -> lock roundtrip is stable'
 
 Write-Host "== Test-HostsBlocked =="
 Assert ((Test-HostsBlocked -PolicyJson $j1 -ExtensionIds @($extA) -Hosts @('mma.sinopac.com', 'richart.tw')) -eq $true) 'verify passes when all present'

@@ -8,17 +8,28 @@ that actually stops chrome.debugger-based automation extensions — the per-site
 "site access" whitelist in the extensions UI does NOT apply to the debugger API.
 
 Usage (run in an elevated PowerShell):
-  .\lockdown.ps1              # interactive: lock / status / restore menu
+  .\lockdown.ps1              # interactive: lock / unblock / status / restore menu
   .\lockdown.ps1 -Action status
   .\lockdown.ps1 -Action lock
+  .\lockdown.ps1 -Action unblock
   .\lockdown.ps1 -Action restore
+
+Non-interactive (for AI-agent-guided runs — see AGENTS.md; every prompt answered
+by parameters, -Yes skips the final confirmation, backup/verify still happen):
+  .\lockdown.ps1 -Action lock    -Browser edge -ExtensionIds <id> -Hosts ebank.esunbank.com.tw,mail.google.com -Yes
+  .\lockdown.ps1 -Action unblock -Browser edge -ExtensionIds <id> -Hosts mail.google.com -Yes
 
 Every write is preceded by a timestamped backup under ~\.ai-browser-lockdown\backups.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('lock', 'status', 'restore')]
-    [string]$Action
+    [ValidateSet('lock', 'unblock', 'status', 'restore')]
+    [string]$Action,
+    [ValidateSet('edge', 'chrome', 'both')]
+    [string]$Browser,
+    [string[]]$ExtensionIds,
+    [string[]]$Hosts,
+    [switch]$Yes
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,16 +79,23 @@ function ConvertTo-DeepHashtable {
 
 function Format-HostPattern {
     # Accepts "host", "*://host", or a pasted URL; returns "*://host" (lowercased) or $null.
+    # Validation mirrors macos/lockdown.sh normalize_host: ports/userinfo are stripped,
+    # and anything that is not a plain dotted hostname is rejected — Chrome silently
+    # discards such patterns, which would leave a blocklist that looks populated but
+    # blocks nothing.
     param([string]$InputHost)
     $h = ($InputHost | ForEach-Object { $_.Trim() }) -replace '^\*://', ''
     if ([string]::IsNullOrWhiteSpace($h)) { return $null }
     if ($h -match '://') {
         try { $h = ([Uri]$h).Host } catch { return $null }
     } else {
-        $h = ($h -split '[/?#]')[0]
+        $h = ($h -split '[/?#]')[0]     # drop path / query / fragment
+        $h = ($h -split '@')[-1]        # drop userinfo (user:pw@host -> host)
+        $h = ($h -split ':')[0]         # drop port     (host:443    -> host)
     }
     $h = $h.Trim().TrimEnd('.').ToLowerInvariant()
-    if ([string]::IsNullOrWhiteSpace($h) -or $h -match '\s') { return $null }
+    if ($h -notmatch '^[a-z0-9.-]+$') { return $null }
+    if ($h -match '^-|-$|\.\.' -or $h -notmatch '\.') { return $null }
     return "*://$h"
 }
 
@@ -108,6 +126,37 @@ function Merge-BlockedHosts {
         $settings[$extId]['runtime_blocked_hosts'] = $merged
     }
     # -Depth default (2) silently truncates nested structures — always set it.
+    return (ConvertTo-Json $settings -Depth 10 -Compress)
+}
+
+function Remove-BlockedHosts {
+    <#
+    Remove host patterns from runtime_blocked_hosts for the given extensions.
+    - Other extensions and other per-extension settings are untouched.
+    - An emptied runtime_blocked_hosts key is removed; an extension entry left with
+      no settings at all is removed; returns $null when the whole ExtensionSettings
+      object would become empty (caller then deletes the policy value).
+    #>
+    param(
+        [AllowNull()][AllowEmptyString()][string]$ExistingJson,
+        [Parameter(Mandatory)][string[]]$ExtensionIds,
+        [Parameter(Mandatory)][string[]]$Hosts
+    )
+    if ([string]::IsNullOrWhiteSpace($ExistingJson)) { return $null }
+    $settings = ConvertTo-DeepHashtable (ConvertFrom-Json $ExistingJson)
+    $patterns = @($Hosts | ForEach-Object { Format-HostPattern $_ } | Where-Object { $_ })
+    foreach ($extId in $ExtensionIds) {
+        if (-not $settings.Contains($extId)) { continue }
+        if (-not $settings[$extId].Contains('runtime_blocked_hosts')) { continue }
+        $remaining = @($settings[$extId]['runtime_blocked_hosts'] | Where-Object { $patterns -notcontains $_ })
+        if ($remaining.Count -gt 0) {
+            $settings[$extId]['runtime_blocked_hosts'] = $remaining
+        } else {
+            $settings[$extId].Remove('runtime_blocked_hosts')
+            if ($settings[$extId].Count -eq 0) { $settings.Remove($extId) }
+        }
+    }
+    if ($settings.Count -eq 0) { return $null }
     return (ConvertTo-Json $settings -Depth 10 -Compress)
 }
 
@@ -324,16 +373,47 @@ function Show-Status {
     }
 }
 
+function Resolve-BrowserSelection {
+    # Installed browsers, filtered by -Browser when given, else interactive multi-select.
+    param([Parameter(Mandatory)][string]$Title)
+    $installed = @($Script:Browsers.Keys | Where-Object { Test-Path $Script:Browsers[$_].UserData })
+    if ($installed.Count -eq 0) { Write-Warning "未偵測到 Edge 或 Chrome。"; return @() }
+    if ($script:Browser) {
+        $want = if ($script:Browser -eq 'both') { @('edge', 'chrome') } else { @($script:Browser) }
+        $pick = @($want | Where-Object { $installed -contains $_ })
+        if ($pick.Count -eq 0) { Write-Warning "指定的瀏覽器（$script:Browser）未安裝。" }
+        return $pick
+    }
+    return Select-Multi -Title $Title -Items $installed -AllowAll `
+        -LabelOf { param($x) $Script:Browsers[$x].Label }
+}
+
+function Resolve-ParamExtensionIds {
+    # Validate -ExtensionIds (non-interactive path). Returns @() and warns on any bad id.
+    $ids = @($script:ExtensionIds | ForEach-Object { ($_ -split ',') } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $bad = @($ids | Where-Object { $_ -notmatch '^[a-p]{32}$' })
+    if ($bad.Count -gt 0) { Write-Warning ("這些不是合法擴充 ID：{0}" -f ($bad -join ', ')); return @() }
+    return @($ids | Select-Object -Unique)
+}
+
+function Resolve-ParamHosts {
+    # Normalize -Hosts (non-interactive path). Rejects loudly instead of silently dropping.
+    $raw = @($script:Hosts | ForEach-Object { ($_ -split ',') } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $out = @(); $bad = @()
+    foreach ($tok in $raw) {
+        $p = Format-HostPattern $tok
+        if ($p) { $out += ($p -replace '^\*://', '') } else { $bad += $tok }
+    }
+    if ($bad.Count -gt 0) { Write-Warning ("這些無法解析為合法 host：{0}" -f ($bad -join ', ')); return @() }
+    return @($out | Select-Object -Unique)
+}
+
 function Invoke-Lock {
     if (-not (Test-IsAdmin)) {
         Write-Warning "寫入 HKLM policy 需要系統管理員權限。請用「以系統管理員身分執行」開 PowerShell 後重跑。"
         return
     }
-    # 1. pick browsers (only installed ones)
-    $installed = @($Script:Browsers.Keys | Where-Object { Test-Path $Script:Browsers[$_].UserData })
-    if ($installed.Count -eq 0) { Write-Warning "未偵測到 Edge 或 Chrome。"; return }
-    $browserPick = Select-Multi -Title "要設定哪些瀏覽器？" -Items $installed -AllowAll `
-        -LabelOf { param($x) $Script:Browsers[$x].Label }
+    $browserPick = Resolve-BrowserSelection -Title "要設定哪些瀏覽器？"
     if ($browserPick.Count -eq 0) { Write-Host "未選擇，結束。"; return }
 
     foreach ($browserId in $browserPick) {
@@ -341,39 +421,47 @@ function Invoke-Lock {
         Write-Host ""
         Write-Host ("--- {0} ---" -f $b.Label) -ForegroundColor Cyan
 
-        # 2. pick extensions (auto-detected debugger extensions + manual entry)
-        $exts = Get-DebuggerExtensions -Browser $b
-        $extIds = @()
-        if ($exts.Count -gt 0) {
-            $picked = Select-Multi -Title "偵測到以下帶 debugger 權限的擴充（AI 瀏覽器控制工具屬於這類）：" `
-                -Items $exts -AllowAll -LabelOf { param($x) "{0}  ({1})  [{2}]" -f $x.Name, $x.Id, ($x.Profiles -join ', ') }
-            $extIds = @($picked | ForEach-Object { $_.Id })
+        # 2. extensions: from -ExtensionIds, or auto-detected debugger extensions + manual entry
+        if ($script:ExtensionIds) {
+            $extIds = Resolve-ParamExtensionIds
         } else {
-            Write-Host "  未自動偵測到帶 debugger 權限的擴充。"
+            $exts = Get-DebuggerExtensions -Browser $b
+            $extIds = @()
+            if ($exts.Count -gt 0) {
+                $picked = Select-Multi -Title "偵測到以下帶 debugger 權限的擴充（AI 瀏覽器控制工具屬於這類）：" `
+                    -Items $exts -AllowAll -LabelOf { param($x) "{0}  ({1})  [{2}]" -f $x.Name, $x.Id, ($x.Profiles -join ', ') }
+                $extIds = @($picked | ForEach-Object { $_.Id })
+            } else {
+                Write-Host "  未自動偵測到帶 debugger 權限的擴充。"
+            }
+            $manualId = Read-Host "要手動加入其他擴充 ID 嗎？（32 碼小寫字母；直接 Enter 跳過）"
+            if ($manualId -match '^[a-p]{32}$') { $extIds += $manualId }
+            elseif (-not [string]::IsNullOrWhiteSpace($manualId)) { Write-Warning "「$manualId」不是合法擴充 ID（略過）。" }
+            $extIds = @($extIds | Select-Object -Unique)
         }
-        $manualId = Read-Host "要手動加入其他擴充 ID 嗎？（32 碼小寫字母；直接 Enter 跳過）"
-        if ($manualId -match '^[a-p]{32}$') { $extIds += $manualId }
-        elseif (-not [string]::IsNullOrWhiteSpace($manualId)) { Write-Warning "「$manualId」不是合法擴充 ID（略過）。" }
-        $extIds = @($extIds | Select-Object -Unique)
         if ($extIds.Count -eq 0) { Write-Host "沒有要設定的擴充，跳過 $($b.Label)。"; continue }
 
-        # 3. pick hosts: catalog groups + custom
-        $groups = Get-Catalog
-        $hosts = @()
-        if ($groups.Count -gt 0) {
-            $pickedGroups = Select-Multi -Title "選擇要封鎖的網站群組（皆為實地驗證過的登入 host）：" `
-                -Items $groups -AllowAll -LabelOf { param($g) "{0}  → {1}" -f $g.label, ($g.hosts -join ', ') }
-            foreach ($g in $pickedGroups) { $hosts += @($g.hosts) }
-        }
-        $custom = Read-Host "自訂 host（逗號分隔；可直接貼上登入頁網址，會自動取出 host；直接 Enter 跳過）"
-        if (-not [string]::IsNullOrWhiteSpace($custom)) {
-            foreach ($tok in ($custom -split ',')) {
-                $p = Format-HostPattern $tok
-                if ($p) { $hosts += ($p -replace '^\*://', '') }
-                else { Write-Warning "「$tok」無法解析成 host（略過）。" }
+        # 3. hosts: from -Hosts, or catalog groups + custom
+        if ($script:Hosts) {
+            $hosts = Resolve-ParamHosts
+        } else {
+            $groups = Get-Catalog
+            $hosts = @()
+            if ($groups.Count -gt 0) {
+                $pickedGroups = Select-Multi -Title "選擇要封鎖的網站群組（皆為實地驗證過的登入 host）：" `
+                    -Items $groups -AllowAll -LabelOf { param($g) "{0}  → {1}" -f $g.label, ($g.hosts -join ', ') }
+                foreach ($g in $pickedGroups) { $hosts += @($g.hosts) }
             }
+            $custom = Read-Host "自訂 host（逗號分隔；可直接貼上登入頁網址，會自動取出 host；直接 Enter 跳過）"
+            if (-not [string]::IsNullOrWhiteSpace($custom)) {
+                foreach ($tok in ($custom -split ',')) {
+                    $p = Format-HostPattern $tok
+                    if ($p) { $hosts += ($p -replace '^\*://', '') }
+                    else { Write-Warning "「$tok」無法解析成 host（略過）。" }
+                }
+            }
+            $hosts = @($hosts | Select-Object -Unique)
         }
-        $hosts = @($hosts | Select-Object -Unique)
         if ($hosts.Count -eq 0) { Write-Host "沒有選擇任何 host，跳過 $($b.Label)。"; continue }
 
         # 4. plan + confirm
@@ -384,8 +472,10 @@ function Invoke-Lock {
         Write-Host ("  Host:   ({0} 個)" -f $hosts.Count)
         foreach ($h in $hosts) { Write-Host ("    *://{0}" -f ($h -replace '^\*://', '')) }
         Write-Host "  （既有設定會保留，只做合併；寫入前自動備份）"
-        $go = Read-Host "確定寫入？ (y/N)"
-        if ($go -notmatch '^[Yy]') { Write-Host "已取消。"; continue }
+        if (-not $script:Yes) {
+            $go = Read-Host "確定寫入？ (y/N)"
+            if ($go -notmatch '^[Yy]') { Write-Host "已取消。"; continue }
+        }
 
         # 5. backup → merge → write → verify
         $backupFile = Backup-Policy -BrowserId $browserId -Browser $b
@@ -405,6 +495,86 @@ function Invoke-Lock {
         Write-Host "  2. 開 $(if ($browserId -eq 'edge') { 'edge://policy' } else { 'chrome://policy' }) 應看到 ExtensionSettings。"
         Write-Host "  3. 實測：叫你的 AI 工具開一個被封鎖的網站 — 應該得到 attach 失敗（例如 Cannot attach to this target）；"
         Write-Host "     再開一個未封鎖的網站 — 應該正常。兩個方向都要測。"
+    }
+}
+
+function Invoke-Unblock {
+    if (-not (Test-IsAdmin)) {
+        Write-Warning "修改 HKLM policy 需要系統管理員權限。請用「以系統管理員身分執行」開 PowerShell 後重跑。"
+        return
+    }
+    $browserPick = Resolve-BrowserSelection -Title "要解除封鎖哪些瀏覽器的設定？"
+    if ($browserPick.Count -eq 0) { Write-Host "未選擇，結束。"; return }
+
+    foreach ($browserId in $browserPick) {
+        $b = $Script:Browsers[$browserId]
+        Write-Host ""
+        Write-Host ("--- {0} ---" -f $b.Label) -ForegroundColor Cyan
+        $json = Get-PolicyJson -Browser $b
+        if (-not $json) { Write-Host "  目前沒有任何 ExtensionSettings policy，無可解除。"; continue }
+        $settings = ConvertTo-DeepHashtable (ConvertFrom-Json $json)
+        $extsWithBlocks = @($settings.Keys | Where-Object { $settings[$_].Contains('runtime_blocked_hosts') })
+        if ($extsWithBlocks.Count -eq 0) { Write-Host "  policy 存在但沒有任何封鎖清單。"; continue }
+
+        # 1. which extensions
+        if ($script:ExtensionIds) {
+            $extIds = @(Resolve-ParamExtensionIds | Where-Object { $extsWithBlocks -contains $_ })
+            if ($extIds.Count -eq 0) { Write-Warning "指定的擴充在 policy 中沒有封鎖清單。"; continue }
+        } else {
+            $extIds = @(Select-Multi -Title "選擇要解除封鎖的擴充：" -Items $extsWithBlocks -AllowAll `
+                -LabelOf { param($x) "{0}  （封鎖 {1} 個 host）" -f $x, @($settings[$x]['runtime_blocked_hosts']).Count })
+        }
+        if ($extIds.Count -eq 0) { Write-Host "未選擇，跳過 $($b.Label)。"; continue }
+
+        # 2. which hosts (union of current blocks across the chosen extensions)
+        $current = @($extIds | ForEach-Object { $settings[$_]['runtime_blocked_hosts'] } | Sort-Object -Unique)
+        if ($script:Hosts) {
+            $hosts = Resolve-ParamHosts
+        } else {
+            $picked = Select-Multi -Title "選擇要解除封鎖的 host（目前封鎖中）：" -Items $current -AllowAll `
+                -LabelOf { param($x) $x }
+            $hosts = @($picked | ForEach-Object { $_ -replace '^\*://', '' })
+        }
+        if ($hosts.Count -eq 0) { Write-Host "未選擇任何 host，跳過 $($b.Label)。"; continue }
+
+        # 3. plan + confirm
+        Write-Host ""
+        Write-Host "即將解除的封鎖：" -ForegroundColor Cyan
+        Write-Host ("  瀏覽器: {0}" -f $b.Label)
+        Write-Host ("  擴充:   {0}" -f ($extIds -join ', '))
+        foreach ($h in $hosts) { Write-Host ("    *://{0}" -f ($h -replace '^\*://', '')) }
+        Write-Host "  （其餘封鎖與設定保留；寫入前自動備份）"
+        if (-not $script:Yes) {
+            $go = Read-Host "確定解除？ (y/N)"
+            if ($go -notmatch '^[Yy]') { Write-Host "已取消。"; continue }
+        }
+
+        # 4. backup → remove → write → verify
+        $backupFile = Backup-Policy -BrowserId $browserId -Browser $b
+        Write-Host ("已備份現況 → {0}" -f $backupFile)
+        $newJson = Remove-BlockedHosts -ExistingJson $json -ExtensionIds $extIds -Hosts $hosts
+        if ($null -eq $newJson) {
+            Remove-ItemProperty -Path $b.PolicyKey -Name 'ExtensionSettings'
+        } else {
+            Set-PolicyJson -Browser $b -Json $newJson
+        }
+        $readback = Get-PolicyJson -Browser $b
+        $stillBlocked = $false
+        if ($readback) {
+            $after = ConvertTo-DeepHashtable (ConvertFrom-Json $readback)
+            foreach ($extId in $extIds) {
+                if (-not $after.Contains($extId)) { continue }
+                if (-not $after[$extId].Contains('runtime_blocked_hosts')) { continue }
+                foreach ($h in $hosts) {
+                    if (@($after[$extId]['runtime_blocked_hosts']) -contains (Format-HostPattern $h)) { $stillBlocked = $true }
+                }
+            }
+        }
+        if ($stillBlocked) {
+            Write-Warning "✗ 讀回驗證失敗 — 部分 host 仍在封鎖清單，請用 -Action status 檢查。"
+        } else {
+            Write-Host "✓ 解除完成，讀回驗證通過。記得完全重啟 $($b.Label) 才會生效。" -ForegroundColor Green
+        }
     }
 }
 
@@ -441,15 +611,17 @@ function Main {
         Write-Host "ai-browser-lockdown — 把 AI 瀏覽器控制擴充擋在要害網站之外" -ForegroundColor Cyan
         Write-Host "  [1] 上鎖（選銀行 → 寫入 policy → 驗證）"
         Write-Host "  [2] 查看目前狀態"
-        Write-Host "  [3] 還原備份"
-        $choice = Read-Host "選擇動作 (1/2/3)"
+        Write-Host "  [3] 解除部分封鎖（unblock 選定 host）"
+        Write-Host "  [4] 還原備份"
+        $choice = Read-Host "選擇動作 (1/2/3/4)"
         $Action = switch ($choice.Trim()) {
-            '1' { 'lock' } '2' { 'status' } '3' { 'restore' }
+            '1' { 'lock' } '2' { 'status' } '3' { 'unblock' } '4' { 'restore' }
             default { Write-Host "無效選擇，結束。"; return }
         }
     }
     switch ($Action) {
         'lock'    { Invoke-Lock }
+        'unblock' { Invoke-Unblock }
         'status'  { Show-Status }
         'restore' { Invoke-Restore }
     }
