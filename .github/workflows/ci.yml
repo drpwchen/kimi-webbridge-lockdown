@@ -32,6 +32,11 @@ jobs:
 
   secret-scan:
     runs-on: ubuntu-latest
+    # gitleaks-action reads the PR's commit list; without these the pull_request
+    # event 403s ("Resource not accessible by integration") while push passes.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
