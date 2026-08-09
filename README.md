@@ -1,4 +1,4 @@
-# ai-browser-lockdown
+# kimi-webbridge-lockdown
 
 [繁體中文](README.zh-TW.md)
 
@@ -39,8 +39,8 @@ If you use an AI browser-control tool, you already have an assistant that can dr
 Run in an **elevated** PowerShell (the policy lives in HKLM):
 
 ```powershell
-git clone https://github.com/drpwchen/ai-browser-lockdown
-cd ai-browser-lockdown\windows
+git clone https://github.com/drpwchen/kimi-webbridge-lockdown
+cd kimi-webbridge-lockdown\windows
 .\lockdown.ps1              # interactive menu: lock / unblock / status / restore
 .\lockdown.ps1 -Action status    # read-only, no admin needed
 
@@ -56,7 +56,7 @@ After writing, **fully quit and restart the browser** (all windows and backgroun
 The policy must live in `/Library/Managed Preferences`, so the script calls `sudo`:
 
 ```bash
-cd ai-browser-lockdown/macos
+cd kimi-webbridge-lockdown/macos
 ./lockdown.sh                    # interactive menu: lock / unblock / status / restore
 ./lockdown.sh status             # read-only, no admin needed
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# ai-browser-lockdown — macOS
+# kimi-webbridge-lockdown — macOS
 #
 # Writes the ExtensionSettings policy (runtime_blocked_hosts) for Microsoft Edge /
 # Google Chrome into /Library/Managed Preferences, which is the ONLY layer macOS
@@ -27,7 +27,7 @@
 #   ./lockdown.sh unblock chrome <extid[,extid]> <host[,host]> --yes
 set -euo pipefail
 
-BACKUP_DIR="$HOME/.ai-browser-lockdown/backups"
+BACKUP_DIR="$HOME/.ai-browser-lockdown/backups"  # legacy path kept so pre-rename backups stay restorable
 MANAGED_DIR="/Library/Managed Preferences"
 
 # --- catalog (master copy: catalog/hosts.json — keep in sync when editing) -----
@@ -453,7 +453,7 @@ do_restore() {
 
 action="${1:-}"
 if [ -z "$action" ]; then
-  echo "ai-browser-lockdown (macOS) — [1] 上鎖  [2] 狀態  [3] 解除部分封鎖  [4] 還原"
+  echo "kimi-webbridge-lockdown (macOS) — [1] 上鎖  [2] 狀態  [3] 解除部分封鎖  [4] 還原"
   read -r -p "選擇動作 (1/2/3/4): " c
   case "$c" in 1) action=lock;; 2) action=status;; 3) action=unblock;; 4) action=restore;; *) echo "無效選擇"; exit 1;; esac
 fi

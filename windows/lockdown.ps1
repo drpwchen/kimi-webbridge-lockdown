@@ -1,6 +1,6 @@
 ﻿#requires -Version 5.1
 <#
-ai-browser-lockdown — lock AI browser-control extensions out of your critical sites.
+kimi-webbridge-lockdown — lock AI browser-control extensions out of your critical sites.
 
 Writes the ExtensionSettings enterprise policy (runtime_blocked_hosts) for
 Microsoft Edge / Google Chrome on Windows. This is the ONLY per-host control
@@ -608,7 +608,7 @@ function Invoke-Restore {
 function Main {
     if (-not $Action) {
         Write-Host ""
-        Write-Host "ai-browser-lockdown — 把 AI 瀏覽器控制擴充擋在要害網站之外" -ForegroundColor Cyan
+        Write-Host "kimi-webbridge-lockdown — 把 AI 瀏覽器控制擴充擋在要害網站之外" -ForegroundColor Cyan
         Write-Host "  [1] 上鎖（選銀行 → 寫入 policy → 驗證）"
         Write-Host "  [2] 查看目前狀態"
         Write-Host "  [3] 解除部分封鎖（unblock 選定 host）"

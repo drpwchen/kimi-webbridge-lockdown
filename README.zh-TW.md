@@ -1,4 +1,4 @@
-# ai-browser-lockdown
+# kimi-webbridge-lockdown
 
 [English](README.md)
 
@@ -39,8 +39,8 @@ AI coding agent 可以透過擴充套件（Kimi WebBridge、Claude in Chrome 等
 用**系統管理員身分**開 PowerShell（政策寫在 HKLM）：
 
 ```powershell
-git clone https://github.com/drpwchen/ai-browser-lockdown
-cd ai-browser-lockdown\windows
+git clone https://github.com/drpwchen/kimi-webbridge-lockdown
+cd kimi-webbridge-lockdown\windows
 .\lockdown.ps1              # 互動選單：上鎖／解除封鎖／狀態／還原
 .\lockdown.ps1 -Action status    # 唯讀，不需系統管理員
 
@@ -56,7 +56,7 @@ cd ai-browser-lockdown\windows
 政策必須寫在 `/Library/Managed Preferences`，所以腳本會呼叫 `sudo`：
 
 ```bash
-cd ai-browser-lockdown/macos
+cd kimi-webbridge-lockdown/macos
 ./lockdown.sh                    # 互動選單：上鎖／解除封鎖／狀態／還原
 ./lockdown.sh status             # 唯讀，不需要管理員權限
 
