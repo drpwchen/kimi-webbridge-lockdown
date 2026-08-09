@@ -113,6 +113,53 @@ has "invalid browser choice is refused" "$out" "無效選擇"
 out="$(feed 2 "$EXT_A" "" "" | run do_lock)"
 has "selecting no hosts refuses to write" "$out" "沒有選擇任何 host"
 
+echo "lock — non-interactive (agent-guided path)"
+out="$(run do_lock chrome "$EXT_A" "www.ubot.com.tw,richart.tw" --yes)"
+has "non-interactive lock merges" "$out" "保留既有 5 條，合併後共 6 條"
+out="$(run do_lock chrome "$EXT_A" "not-a-url" --yes)" || true
+has   "non-interactive bad host aborts loudly" "$out" "無法解析為合法 host"
+out="$(run do_lock ie "$EXT_A" "mail.google.com" --yes)" || true
+has   "non-interactive bad browser refused" "$out" "無效瀏覽器"
+
+echo "unblock — non-interactive (agent-guided path)"
+out="$(run do_unblock chrome "$EXT_A" "www.ubot.com.tw,richart.tw" --yes)"
+has "reports remaining count" "$out" "剩 4 條封鎖"
+has "read-back verification passes" "$out" "讀回驗證通過"
+hosts_now="$(plutil -extract "ExtensionSettings.$EXT_A.runtime_blocked_hosts" json -o - "$PLIST")"
+hasnt "removed host is gone"    "$hosts_now" "ubot"
+has   "other hosts stay"        "$hosts_now" "ebank.esunbank.com.tw"
+is "sibling key on the extension survives unblock" \
+   "$(plutil -extract "ExtensionSettings.$EXT_A.installation_mode" raw -o - "$PLIST")" "force_installed"
+is "unrelated policy survives unblock" \
+   "$(plutil -extract UnrelatedPolicy raw -o - "$PLIST")" "keep-me"
+
+out="$(run do_unblock chrome "$EXT_B" "mail.google.com" --yes)"
+has "whole-list removal reported" "$out" "封鎖清單已全部解除"
+if plutil -extract "ExtensionSettings.$EXT_B" json -o - "$PLIST" >/dev/null 2>&1; then
+  bad "hosts-only extension entry removed entirely" "absent" "still present"
+else
+  ok "hosts-only extension entry removed entirely"
+fi
+is "first extension unaffected by second's unblock" \
+   "$(plutil -extract "ExtensionSettings.$EXT_A.runtime_blocked_hosts.0" raw -o - "$PLIST")" "*://ebank.esunbank.com.tw"
+
+echo "unblock — rejects what it cannot parse"
+out="$(run do_unblock chrome "$EXT_A" "not-a-url" --yes)" || true
+has   "invalid host rejected loudly" "$out" "無法解析為合法 host"
+hasnt "…without an unbound-variable crash" "$out" "unbound variable"
+has "nothing was removed" "$(plutil -extract "ExtensionSettings.$EXT_A.runtime_blocked_hosts" json -o - "$PLIST")" "ebank.esunbank.com.tw"
+
+echo "unblock — interactive"
+out="$(feed 2 "$EXT_A" all y | run do_unblock)"
+has "interactive 'all' clears the list" "$out" "封鎖清單已全部解除"
+is "sibling-keyed extension entry is kept" \
+   "$(plutil -extract "ExtensionSettings.$EXT_A.installation_mode" raw -o - "$PLIST")" "force_installed"
+if plutil -extract "ExtensionSettings.$EXT_A.runtime_blocked_hosts" json -o - "$PLIST" >/dev/null 2>&1; then
+  bad "emptied host list key removed" "absent" "still present"
+else
+  ok "emptied host list key removed"
+fi
+
 echo "restore"
 n="$(find "$WORK/backups" -type f | wc -l | tr -d ' ')"
 out="$(feed "$n" y | run do_restore)"

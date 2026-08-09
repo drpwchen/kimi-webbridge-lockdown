@@ -22,7 +22,15 @@ AI coding agent 可以透過擴充套件（Kimi WebBridge、Claude in Chrome 等
 2. **讓你選**要保護什麼：內建一份實地驗證過的台灣網銀／券商／Gmail 登入 host 目錄，也可自訂（直接貼登入頁網址，會自動取出 host）。
 3. **先備份**現有政策，再把封鎖清單**合併**進 `ExtensionSettings`（絕不覆蓋既有設定）。
 4. **驗證**：讀回 registry 比對，並引導你做實測——被封網站必須 attach 失敗、正常網站必須照常。
-5. **一鍵還原**任何一次備份。
+5. **解除部分封鎖**（臨時需要自動化某個被封的網站？只解那一個 host，其餘保留）＋**一鍵還原**任何一次備份。
+
+## 讓你的 AI agent 帶你跑完全程
+
+會用到這個工具的人，手上本來就有一個會操作終端機的 AI 助手——那就讓它引導你完成對它自己的上鎖。跟你的 agent 說：
+
+> 讀這個 repo 的 AGENTS.md，帶我把要害網站鎖起來。
+
+[AGENTS.md](AGENTS.md) 幫 agent 寫好了整套流程：訪談你要保護哪些網銀／券商／信箱（硬規則：host 只能來自你的網址列或已驗證目錄，絕不准用模型記憶）、確認該保持開放的子網域、用非互動模式執行工具，最後**用「自己試著突破」來證明鎖有效**——agent 對被封 host attach 失敗，就是驗證本身。兩個腳本都為此提供參數模式（Windows `-Browser/-ExtensionIds/-Hosts/-Yes`；macOS 位置參數 `lock chrome <id> <hosts> --yes`）。
 
 ## 使用方式
 
@@ -33,8 +41,12 @@ AI coding agent 可以透過擴充套件（Kimi WebBridge、Claude in Chrome 等
 ```powershell
 git clone https://github.com/drpwchen/ai-browser-lockdown
 cd ai-browser-lockdown\windows
-.\lockdown.ps1              # 互動選單：上鎖／狀態／還原
+.\lockdown.ps1              # 互動選單：上鎖／解除封鎖／狀態／還原
 .\lockdown.ps1 -Action status    # 唯讀，不需系統管理員
+
+# 非互動模式（給 AI agent 引導用；見 AGENTS.md）
+.\lockdown.ps1 -Action lock    -Browser edge -ExtensionIds <id> -Hosts host1,host2 -Yes
+.\lockdown.ps1 -Action unblock -Browser edge -ExtensionIds <id> -Hosts host1 -Yes
 ```
 
 寫入後**完全關閉瀏覽器再重開**（含背景程序），到 `edge://policy` / `chrome://policy` 確認 `ExtensionSettings` 有出現，然後雙向實測。
@@ -45,8 +57,12 @@ cd ai-browser-lockdown\windows
 
 ```bash
 cd ai-browser-lockdown/macos
-./lockdown.sh                    # 互動選單：上鎖／狀態／還原
+./lockdown.sh                    # 互動選單：上鎖／解除封鎖／狀態／還原
 ./lockdown.sh status             # 唯讀，不需要管理員權限
+
+# 非互動模式（給 AI agent 引導用；見 AGENTS.md）
+./lockdown.sh lock    chrome <id> host1,host2 --yes
+./lockdown.sh unblock chrome <id> host1 --yes
 ```
 
 寫入後**完全關閉瀏覽器再重開**（Cmd+Q，所有視窗），開 `chrome://policy` /

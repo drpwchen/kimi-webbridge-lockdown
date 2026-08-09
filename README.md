@@ -22,7 +22,15 @@ This tool makes that policy a guided, reversible, one-command setup.
 2. **Lets you pick** what to protect: a starter catalog of verified Taiwan bank / broker / Gmail login hosts, plus any host you add (paste the login-page URL — the host is extracted for you).
 3. **Backs up** the current policy, then **merges** (never overwrites) your blocked hosts into `ExtensionSettings`.
 4. **Verifies** by reading the policy back, and walks you through the live test: blocked site must fail to attach, normal site must still work.
-5. **Restores** any backup with one command.
+5. **Unblocks** selected hosts later (need automation on a blocked site once? remove just that host, keep the rest) and **restores** any backup with one command.
+
+## Let your AI agent run this for you
+
+If you use an AI browser-control tool, you already have an assistant that can drive terminals — so let it guide you through its own lockdown. Tell your agent:
+
+> Read AGENTS.md in this repo and walk me through locking my critical sites.
+
+[AGENTS.md](AGENTS.md) scripts the whole flow for the agent: interview you about which banks/brokers/mailboxes to protect (with the hard rule that hosts come from your address bar or the verified catalog — never from the model's memory), confirm keep-open subdomains, run the tool in its non-interactive mode, and then **prove the lock works by trying to break it** — the agent attaching to a blocked host and failing is the verification. Both scripts take parameters (`-Browser/-ExtensionIds/-Hosts/-Yes` on Windows, positional `lock chrome <id> <hosts> --yes` on macOS) exactly for this.
 
 ## Usage
 
@@ -33,8 +41,12 @@ Run in an **elevated** PowerShell (the policy lives in HKLM):
 ```powershell
 git clone https://github.com/drpwchen/ai-browser-lockdown
 cd ai-browser-lockdown\windows
-.\lockdown.ps1              # interactive menu: lock / status / restore
+.\lockdown.ps1              # interactive menu: lock / unblock / status / restore
 .\lockdown.ps1 -Action status    # read-only, no admin needed
+
+# non-interactive (agent-guided; see AGENTS.md)
+.\lockdown.ps1 -Action lock    -Browser edge -ExtensionIds <id> -Hosts host1,host2 -Yes
+.\lockdown.ps1 -Action unblock -Browser edge -ExtensionIds <id> -Hosts host1 -Yes
 ```
 
 After writing, **fully quit and restart the browser** (all windows and background processes), check `edge://policy` / `chrome://policy` shows `ExtensionSettings`, then live-test both directions.
@@ -45,8 +57,12 @@ The policy must live in `/Library/Managed Preferences`, so the script calls `sud
 
 ```bash
 cd ai-browser-lockdown/macos
-./lockdown.sh                    # interactive menu: lock / status / restore
+./lockdown.sh                    # interactive menu: lock / unblock / status / restore
 ./lockdown.sh status             # read-only, no admin needed
+
+# non-interactive (agent-guided; see AGENTS.md)
+./lockdown.sh lock    chrome <id> host1,host2 --yes
+./lockdown.sh unblock chrome <id> host1 --yes
 ```
 
 After writing, **fully quit and restart the browser** (Cmd+Q, all windows), open

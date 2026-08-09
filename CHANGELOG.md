@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.3.0 — 2026-08-09
+
+Agent-guided mode, unblock, and the Windows port of v0.2.0's host validation.
+
+- **AGENTS.md — let your AI agent run the whole flow.** People using this tool already have an AI agent; AGENTS.md scripts it end-to-end: interview which sites to protect (hosts only from the user's address bar or the verified catalog, never from model memory), keep-open check, non-interactive apply, then the agent proves the lock by attempting to attach to a blocked host and failing. Both scripts gained a non-interactive mode for this (Windows `-Browser/-ExtensionIds/-Hosts/-Yes`; macOS positional `lock|unblock <browser> <extids> <hosts> --yes`) — confirmation is skippable, backup and read-back verification are not.
+- **`unblock` on both platforms** — remove selected hosts from selected extensions; everything else (other hosts, sibling settings like `installation_mode`, other extensions, unrelated policies) is preserved; an emptied host list drops its key, an extension entry left empty disappears, and on Windows a fully emptied policy value is deleted. Backup before write, read-back verifies the removed hosts are gone.
+- **Windows host validation ported from v0.2.0's macOS fix** — the same lax parsing existed in `Format-HostPattern`: ports and userinfo passed straight through (`client.schwab.com:443` → a pattern Chrome silently discards) and dot-less bare words became "hosts". Now stripped/validated identically to macOS; invalid non-interactive input aborts loudly instead of being dropped.
+- Tests: Windows 26→44 (Remove-BlockedHosts, roundtrip, new rejections; mutation-verified — never-drop-emptied-key, filter-removes-nothing, and dropped-validation each fail the suite), macOS 36→54 (non-interactive lock/unblock, whole-list removal, bad-input abort).
+
+---
+
+代理引導模式、unblock、以及 v0.2.0 host 驗證的 Windows 移植。
+
+- **AGENTS.md——讓你的 AI agent 跑完全程。** 會用這工具的人手上都有 AI agent；AGENTS.md 把流程整套寫給它：訪談要保護哪些網站（host 只准來自使用者網址列或已驗證目錄，絕不准用模型記憶）、keep-open 確認、非互動執行，最後 agent 以「自己 attach 被封 host 而失敗」證明鎖有效。兩平台為此加了非互動模式——確認步驟可跳過，備份與讀回驗證不可跳過。
+- **兩平台皆有 `unblock`**——從選定擴充移除選定 host，其餘全數保留（其他 host、`installation_mode` 等同層設定、其他擴充、無關政策）；清空的清單移除該 key、空掉的擴充條目整個消失、Windows 上整份 policy 空掉則刪除該值。寫入前備份、讀回驗證移除到位。
+- **Windows 補上 v0.2.0 修過的 host 驗證**——同款寬鬆解析也在 `Format-HostPattern`：port／userinfo 原樣通過（Chrome 會默默丟棄）、無點裸字變 host。現與 macOS 規則一致；非互動模式下無效輸入大聲中止而非默默丟棄。
+- 測試：Windows 26→44（含三種變異驗證全被抓）、macOS 36→54。
+
 ## v0.2.0 — 2026-08-09
 
 macOS path rewritten after real-hardware testing. **v0.1.0's macOS lockdown protected nothing** — upgrade if you ran it.
