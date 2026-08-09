@@ -1,0 +1,65 @@
+{
+  "$schema_note": "Starter catalog of VERIFIED login hosts for Taiwan banks/brokers + common critical sites. Every host here was confirmed by actually opening the login page and copying the host from the address bar. Do NOT add hosts from search-engine memory — see CONTRIBUTING section in README.",
+  "version": "2026-08-09",
+  "pattern_rule": "Exact hosts only, written as *://<host>. Never *.domain wildcards — they would also block credit-card / event-registration / account-opening subdomains that browser automation legitimately needs.",
+  "groups": [
+    {
+      "id": "sinopac-bank",
+      "label": "永豐銀行 SinoPac (personal e-banking)",
+      "hosts": ["mma.sinopac.com", "accessibility.sinopac.com"],
+      "verified": "2026-08-09",
+      "keep_open": ["card.sinopac.com"]
+    },
+    {
+      "id": "hncb-bank",
+      "label": "華南銀行 Hua Nan Bank (e-banking)",
+      "hosts": ["netbank.hncb.com.tw", "lovebank.hncb.com.tw"],
+      "verified": "2026-08-09",
+      "keep_open": []
+    },
+    {
+      "id": "esun-bank",
+      "label": "玉山銀行 E.SUN Bank (e-banking)",
+      "hosts": ["ebank.esunbank.com.tw"],
+      "verified": "2026-08-09",
+      "keep_open": ["card.esunbank.com.tw"]
+    },
+    {
+      "id": "taishin-bank",
+      "label": "台新銀行 Taishin / Richart (e-banking)",
+      "hosts": ["my.taishinbank.com.tw", "ac.taishinbank.com.tw", "richart.tw"],
+      "verified": "2026-08-09",
+      "keep_open": ["richartlife.taishinbank.com.tw"]
+    },
+    {
+      "id": "ubot-bank",
+      "label": "聯邦銀行 Union Bank of Taiwan (personal e-banking)",
+      "hosts": ["www.ubot.com.tw"],
+      "verified": "2026-08-09",
+      "note": "Personal e-banking logs in on www.ubot.com.tw; myebank.ubot.com.tw is the CORPORATE portal — verify which one you actually use.",
+      "keep_open": ["card.ubot.com.tw"]
+    },
+    {
+      "id": "ubot-securities",
+      "label": "聯邦證券 Union Securities (broker)",
+      "hosts": ["www.usot.com.tw"],
+      "verified": "2026-08-09",
+      "keep_open": []
+    },
+    {
+      "id": "schwab",
+      "label": "Charles Schwab (broker + bank)",
+      "hosts": ["client.schwab.com", "online.schwabbank.com"],
+      "verified": "2026-08-09",
+      "keep_open": ["www.schwab.com"]
+    },
+    {
+      "id": "gmail",
+      "label": "Gmail (mail content)",
+      "hosts": ["mail.google.com"],
+      "verified": "2026-08-09",
+      "note": "Blocks reading/sending mail. Deliberately does NOT block accounts.google.com (would break Google sign-in everywhere) or docs.google.com (forms/docs automation).",
+      "keep_open": ["accounts.google.com", "docs.google.com"]
+    }
+  ]
+}
